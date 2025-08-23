@@ -1,26 +1,41 @@
+import datasets
+from dataclasses import dataclass
+from typing import Iterable
+from tokenizers import Tokenizer
 import torch
-import torch.nn as nn
-from torch.utils.data import Dataset
+import torch.utils.data
+from torch.utils.data import DataLoader, random_split
 
-def make_input_mask(encoder_input, padding_token):
+from config import Config
+
+
+@dataclass
+class DataSet:
+    train: DataLoader
+    validation: DataLoader
+    tokenizer_src: Tokenizer
+    tokenizer_tgt: Tokenizer
+
+
+def make_input_mask(encoder_input: torch.Tensor, padding_token: torch.Tensor):
     return (encoder_input != padding_token).unsqueeze(0).unsqueeze(0).int()
 
-def causal_mask(size):
+def causal_mask(size: int) -> torch.Tensor:
     mask = torch.triu(torch.ones(1, size, size), diagonal=1).type(torch.int)
     return mask == 0
 
-def make_decoder_mask(decoder_input, padding_token):
+def make_decoder_mask(decoder_input: torch.Tensor, padding_token: torch.Tensor):
     return make_input_mask(decoder_input, padding_token) & causal_mask(decoder_input.size(0))
 
-class BilingualDataset(Dataset):
+class BilingualDataset(torch.utils.data.Dataset):
     def __init__(
-            self,
-            dataset,
-            tokenizer_src,
-            tokenizer_tgt,
-            src_lang:str,
-            tgt_lang: str,
-            seq_len: int
+        self,
+        dataset,
+        tokenizer_src: Tokenizer,
+        tokenizer_tgt: Tokenizer,
+        src_lang: str,
+        tgt_lang: str,
+        seq_len: int
     ):
         self.dataset = dataset
         self.tokenizer_src = tokenizer_src
@@ -98,4 +113,76 @@ class BilingualDataset(Dataset):
             "tgt_text":tgt_text,
         }
 
+
+
+
+
+def get_all_sentences(dataset: Iterable[dict], lang: str):
+    for item in dataset:
+        yield item["translation"][lang]
+
+
+
+def get_dataset(config: Config) -> DataSet:
+    print("loading dataset")
+    dataset_raw: datasets.Dataset = datasets.load_dataset(
+        "Helsinki-NLP/opus_books",
+        f"{config.lang_src}-{config.lang_tgt}", 
+        split="train",
+    )
+    print("dataset loaded.")
+
+    from tokens import build_tokenizer
+
+    tokenizer_src = build_tokenizer(config, dataset_raw, config.lang_src)
+    tokenizer_tgt = build_tokenizer(config, dataset_raw, config.lang_tgt)
+
+    # keep 90% for training and 10% for validation
+    train_dataset_size = int(0.9 * len(dataset_raw))
+    validation_dataset_size = len(dataset_raw) - train_dataset_size
+
+    train_dataset_raw, validation_dataset_raw = random_split(
+        dataset_raw,
+        [train_dataset_size, validation_dataset_size]
+    )
+
+    train_dataset = BilingualDataset(
+        train_dataset_raw,
+        tokenizer_src,
+        tokenizer_tgt,
+        config.lang_src,
+        config.lang_tgt,
+        config.seq_len,
+    )
+
+    validation_dataset = BilingualDataset(
+        validation_dataset_raw,
+        tokenizer_src,
+        tokenizer_tgt,
+        config.lang_src,
+        config.lang_tgt,
+        config.seq_len,
+    )
+
+    max_len_src = 0
+    max_len_tgt = 0
+    for item in dataset_raw:
+        src_ids = tokenizer_src.encode(item["translation"][config.lang_src]).ids
+        tgt_ids = tokenizer_tgt.encode(item["translation"][config.lang_tgt]).ids
+
+        max_len_src = max(max_len_src, len(src_ids))
+        max_len_tgt = max(max_len_tgt, len(tgt_ids))
+
+    print(f"max length of source sentence {max_len_src}")
+    print(f"max length of target sentence {max_len_tgt}")
+
+    train_dataloader = DataLoader(train_dataset, batch_size=config.batch_size, shuffle=True)
+    validation_dataloader = DataLoader(validation_dataset, batch_size=1, shuffle=True)
+
+    return DataSet(
+        train=train_dataloader,
+        validation=validation_dataloader, 
+        tokenizer_src=tokenizer_src,
+        tokenizer_tgt=tokenizer_tgt
+    )
 

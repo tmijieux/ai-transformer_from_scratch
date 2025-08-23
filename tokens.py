@@ -5,9 +5,12 @@ from tokenizers.models import WordLevel
 from tokenizers.trainers import WordLevelTrainer
 from tokenizers.pre_tokenizers import Whitespace
 
-def build_tokenizer(config, dataset, lang: str):
+from config import Config
+from dataset import get_all_sentences
 
-    tokenizer_path = Path(config["tokenizer_file"].format(lang))
+def build_tokenizer(config: Config, dataset, lang: str):
+
+    tokenizer_path = Path(config.tokenizer_file.format(lang))
 
     if not Path.exists(tokenizer_path):
         tokenizer = Tokenizer(WordLevel(unk_token='[unknown]'))

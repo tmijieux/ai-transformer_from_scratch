@@ -3,6 +3,8 @@ import torch
 import torch.nn as nn
 import math
 
+from config import Config
+
 
 @dataclass
 class InputParams:
@@ -182,7 +184,7 @@ class Encoder(nn.Module):
         self.layers = nn.ModuleList(layers)
         self.norm = LayerNormalization()
 
-    def forward(self, x, mask):
+    def forward(self, x: torch.Tensor, mask: torch.Tensor):
 
         for layer in self.layers:
             x = layer(x, mask)
@@ -266,17 +268,17 @@ class Transformer(nn.Module):
         self.projection_layer = ProjectionLayer(p.embed_size, tgt.vocab_size)
 
         # initialize the parameters for learning faster
-        for p in self.parameters():
-            if p.dim() > 1:
-                nn.init.xavier_uniform_(p)
+        for p1 in self.parameters():
+            if p1.dim() > 1:
+                nn.init.xavier_uniform_(p1)
 
 
-    def encode(self, src, src_mask):
+    def encode(self, src: torch.Tensor, src_mask: torch.Tensor) -> torch.Tensor:
         src = self.src_embedding(src)
         src = self.src_pos(src)
         return self.encoder(src, src_mask)
 
-    def decode(self, encoder_output, encoder_mask, tgt, decoder_mask):
+    def decode(self, encoder_output, encoder_mask, tgt, decoder_mask) -> torch.Tensor:
         tgt = self.tgt_embedding(tgt)
         tgt = self.tgt_pos(tgt)
         return self.decoder(tgt, encoder_output, encoder_mask, decoder_mask)
@@ -285,16 +287,16 @@ class Transformer(nn.Module):
         return self.projection_layer(x)
 
 
-def get_model(config, vocab_src_len: int, vocab_tgt_len: int):
+def get_model(config: Config, vocab_src_len: int, vocab_tgt_len: int):
     model = Transformer(
-        Params(embed_size=config["d_model"]),
+        Params(embed_size=config.d_model),
         src=InputParams(
             vocab_size=vocab_src_len,
-            seq_len=config["seq_len"]
+            seq_len=config.seq_len
         ),
         tgt=InputParams(
             vocab_size=vocab_tgt_len,
-            seq_len=config["seq_len"],
+            seq_len=config.seq_len,
         ),
     )
     return model
