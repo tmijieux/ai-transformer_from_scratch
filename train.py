@@ -131,7 +131,6 @@ def train_model(config):
     Path(config["model_folder"]).mkdir(parents=True,exist_ok=True)
 
     train_dataloader, validation_dataloader, tokenizer_src, tokenizer_tgt = get_dataset(config)
-
     model = get_model(
         config,
         tokenizer_src.get_vocab_size(),
@@ -153,7 +152,6 @@ def train_model(config):
     global_step = 0
     if config["preload"] is not None:
         model_filename = get_weights_file_path(config, config["preload"])
-
         print(f"Preloading model {model_filename}")
         state = torch.load(model_filename)
         model.load_state_dict(state["model_state_dict"])
@@ -163,6 +161,7 @@ def train_model(config):
     else:
         print("no model to preload, starting from scratch")
 
+    # model = torch.compile(model)
     loss_fn = nn.CrossEntropyLoss(
         ignore_index=tokenizer_src.token_to_id("[padding]"),
         label_smoothing=0.1
@@ -227,7 +226,6 @@ def train_model(config):
             "optimizer_state_dict": optimizer.state_dict(),
             "global_step": global_step
         }, model_filename)
-
 
 if __name__ == "__main__":
     train_model(get_config())

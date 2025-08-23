@@ -105,11 +105,21 @@ class MultiHeadAttentionBlock(nn.Module):
     def attention(query, key, value, mask, dropout: nn.Dropout):
         d_k = query.shape[-1]
 
+
+        #  query is b, h, seq_len, d_k
+        #  key is b, h, seq_len, d_k
+        # -> key^T is b, h, d_k, seq_len
+        # query @ key^T = b, h, seq_len, seq_len
+        # basically for each batch, for each head,
+        # we have a square matrix seq_len matrix
+        # at i,j we have scalar product of word i and j (for the embedding direction concerned by head)
+
         # (Batch, h, Seq_len, d_k) --> (Batch, h, Seq_len, Seq_len)
-        attention_scores = (query @ key.transpose(-2,-1)) / math.sqrt(d_k)
+        attention_scores = (query @ key.transpose(-2,-1)) / math.sqrt(d_k) # "block scalar product" with same head of other words?
         if mask is not None:
             attention_scores.masked_fill_(mask == 0, -1e9)
 
+        # softmax on each row
         attention_scores = attention_scores.softmax(dim = -1) # (Batch, h, seq_len, seq_len)
 
         if dropout is not None:
@@ -219,6 +229,11 @@ class Decoder(nn.Module):
 class ProjectionLayer(nn.Module):
     def __init__(self, embed_size: int, vocab_size: int):
         super().__init__()
+
+        # project embedding vector (i.e vector that store "features"/ideas about words)
+        # to a array of probability of each word
+        # index of output array is token id
+        # value at index i is probability of token i
 
         self.proj = nn.Linear(embed_size, vocab_size)
 

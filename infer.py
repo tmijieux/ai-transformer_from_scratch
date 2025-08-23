@@ -11,6 +11,23 @@ from tokens import build_tokenizer
 
 print("finished imports")
 
+
+def remove_compiled_state(q):
+    for k,v in q.items():
+        if k.startswith("_orig_mod."):
+            break
+    else:
+        return q
+
+    from collections import OrderedDict
+    res = OrderedDict()
+    for k,v in q.items():
+        if k.startswith("_orig_mod."):
+            k = k[len("_orig_mod."):]
+            res[k] = v
+    return res
+
+
 def load_model():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     gpu_ok = False
@@ -26,14 +43,13 @@ def load_model():
             "GPU is not NVIDIA V100, A100, or H100. Speedup numbers may be lower "
             "than expected."
         )
-    print("using device = ", device)
 
+    print("using device = ", device)
     config = get_config()
     tokenizer_src = build_tokenizer(config, None, config["lang_src"])
     tokenizer_tgt = build_tokenizer(config, None, config["lang_tgt"])
-
-    print("src.vocab_size=",tokenizer_src.get_vocab_size())
-    print("tgt.vocab_size=",tokenizer_tgt.get_vocab_size())
+    print("src.vocab_size=", tokenizer_src.get_vocab_size())
+    print("tgt.vocab_size=", tokenizer_tgt.get_vocab_size())
 
     model = get_model(
         config,
@@ -46,7 +62,10 @@ def load_model():
 
         print(f"Preloading model {model_filename}")
         state = torch.load(model_filename)
-        model.load_state_dict(state["model_state_dict"])
+        q = state["model_state_dict"]
+        q = remove_compiled_state(q)
+        #print("q=",q)
+        model.load_state_dict(q)
     else:
         raise Exception("could not load model - no preload")
 
@@ -60,7 +79,6 @@ def load_model():
 def build_input_from_string(tokenizer_src, input_text: str, seq_len: int):
     enc_input_tokens = tokenizer_src.encode(input_text).ids
     enc_num_padding_tokens = seq_len - len(enc_input_tokens) - 2 # s-o-s / e-o-s
-
     sos = torch.tensor(
         [tokenizer_src.token_to_id('[start-of-sentence]')],
         dtype=torch.int64,
@@ -73,7 +91,6 @@ def build_input_from_string(tokenizer_src, input_text: str, seq_len: int):
         [tokenizer_src.token_to_id('[padding]')],
         dtype=torch.int64,
     )
-
     enc_input = torch.cat(
         [
             sos,
@@ -82,10 +99,7 @@ def build_input_from_string(tokenizer_src, input_text: str, seq_len: int):
             torch.tensor([padding] * enc_num_padding_tokens, dtype=torch.int64)
         ]
     )
-
     enc_mask = make_input_mask(enc_input, padding)
-
-
     return enc_input, enc_mask
 
 def as_single_batch(input_sequence):
@@ -112,13 +126,39 @@ def greedy_decode(model, source, source_mask, tokenizer_src, tokenizer_tgt, max_
         out = model.decode(encoder_output, source_mask, decoder_input, decoder_mask)
         # out: (batch_size(1), seq_len, embed_size)
 
+        print("out.size()=",out.size())
+        prob = model.project(out[:,-1,:])#-1 takes only last token of output sequence ?
 
-        prob = model.project(out[:,-1])#-1 takes only last token in seq ?
+
+
         # (Batch, Seq_Len, embed_size)
         # --project-- > prob: (Batch, Seq_Len, vocab_size)
 
         # select the token with the max probability (because it is a greedy search)
+
+        print("\n")
+        print("prob.size()=",prob.size())
+        print("prob=",prob)
         _, next_word = torch.max(prob, dim=1)
+        print("next_word=", next_word)
+        decoded = tokenizer_tgt.decode(
+            [next_word.item()]
+        )
+        print("decoded1??=", decoded)
+
+        print("\n")
+
+        prob2 = model.project(out)
+        print("prob2.size()=", prob2.size())
+        print("prob2=", prob2)
+        _, next_word2 = torch.max(prob2, dim=2)
+        print("next_word2=", next_word2)
+        print("next_word2.size=", next_word2.size())
+        decoded2 = tokenizer_tgt.decode(
+            next_word2.squeeze(0).detach().cpu().numpy()
+        )
+        print("decoded2??=", decoded2)
+        print("\n\n")
 
         decoder_input = torch.cat([
             decoder_input,
@@ -132,11 +172,9 @@ def greedy_decode(model, source, source_mask, tokenizer_src, tokenizer_tgt, max_
 
 def infer(model_tokenizers, input_text: str):
     model, tokenizer_src, tokenizer_tgt, device = model_tokenizers
-
     enc_input, enc_mask = build_input_from_string(
         tokenizer_src, input_text, model.src_params.seq_len
     )
-
     model_out = greedy_decode(
         model,
         as_single_batch(enc_input.to(device)),

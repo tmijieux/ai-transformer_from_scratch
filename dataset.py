@@ -10,7 +10,7 @@ def causal_mask(size):
     return mask == 0
 
 def make_decoder_mask(decoder_input, padding_token):
-    return make_input_mask(decoder_input) & causal_mask(decoder_input.size(0))
+    return make_input_mask(decoder_input, padding_token) & causal_mask(decoder_input.size(0))
 
 class BilingualDataset(Dataset):
     def __init__(
