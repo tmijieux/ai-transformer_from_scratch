@@ -54,10 +54,10 @@ def load_model() -> ModelAndTokenizers:
     print("using device = ", device)
     config = get_config()
 
-    from tokens import build_tokenizer
+    from tokens import get_or_build_tokenizer
 
-    tokenizer_src = build_tokenizer(config, None, config.lang_src)
-    tokenizer_tgt = build_tokenizer(config, None, config.lang_tgt)
+    tokenizer_src = get_or_build_tokenizer(config, None, config.lang_src)
+    tokenizer_tgt = get_or_build_tokenizer(config, None, config.lang_tgt)
     print("src.vocab_size=", tokenizer_src.get_vocab_size())
     print("tgt.vocab_size=", tokenizer_tgt.get_vocab_size())
 
@@ -122,15 +122,14 @@ def as_single_batch(input_sequence: torch.Tensor):
 
 def greedy_decode(
     m: ModelAndTokenizers,
-    source: torch.Tensor, 
-    source_mask: torch.Tensor, 
-    max_len: int, 
+    source: torch.Tensor,
+    source_mask: torch.Tensor,
+    max_len: int
 ):
     start_of_sentence_idx: int = m.tokenizer_tgt.token_to_id("[start-of-sentence]")
     end_of_sentence_idx: int = m.tokenizer_tgt.token_to_id("[end-of-sentence]")
 
     # precompute the encoder output and resute it for every token we get from the decoder
-
     encoder_output = m.model.encode(source, source_mask)
     decoder_input = torch.empty(1, 1).fill_(start_of_sentence_idx).type_as(source).to(m.device)
 

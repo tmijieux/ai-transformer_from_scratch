@@ -15,8 +15,8 @@ class InputParams:
 @dataclass
 class Params:
     nb_layers: int = 6
-    nb_heads: int = 8 # each head of size 64
     embed_size: int = 512
+    nb_heads: int = 8 # each head of size 64 (embed_size / nb_heads) 512/64 = 64
     feed_forward_size: int = 2048
     dropout: float = 0.1
 
@@ -254,6 +254,10 @@ class Transformer(nn.Module):
     ):
         super().__init__()
         self.params =  p
+        print("p.embed_size=",p.embed_size)
+        print("p.nb_heads=",p.nb_heads)
+        if p.embed_size % p.nb_heads != 0:
+            raise Exception(f"embed_size={p.embed_size} must be a multiple of nb_heads={p.nb_heads}")
         self.src_params = src
         self.tgt_params = tgt
 

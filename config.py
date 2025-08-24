@@ -3,7 +3,7 @@ from pathlib import Path
 
 @dataclass
 class Config:
-    batch_size = 8
+    batch_size = 3
     num_epochs = 20
     learning_rate = 10**-4
     seq_len = 484
@@ -12,8 +12,9 @@ class Config:
     lang_tgt = "fr"
     model_folder = "weights"
     model_basename = "tmodel_"
-    preload = "05"
-    tokenizer_file = "tokenizer_{0}.json"
+    #preload = "05"
+    preload = None
+    tokenizer_file = "tokenizers/tokenizer_{0}.json"
     experiment_name = "runs/tmodel"
 
 

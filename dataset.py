@@ -1,3 +1,4 @@
+import typing
 import datasets
 from dataclasses import dataclass
 from typing import Iterable
@@ -7,14 +8,8 @@ import torch.utils.data
 from torch.utils.data import DataLoader, random_split
 
 from config import Config
+from tokens import Tokenizers
 
-
-@dataclass
-class DataSet:
-    train: DataLoader
-    validation: DataLoader
-    tokenizer_src: Tokenizer
-    tokenizer_tgt: Tokenizer
 
 
 def make_input_mask(encoder_input: torch.Tensor, padding_token: torch.Tensor):
@@ -26,6 +21,32 @@ def causal_mask(size: int) -> torch.Tensor:
 
 def make_decoder_mask(decoder_input: torch.Tensor, padding_token: torch.Tensor):
     return make_input_mask(decoder_input, padding_token) & causal_mask(decoder_input.size(0))
+
+
+class MyBatch(typing.TypedDict):
+    encoder_input: torch.Tensor
+    encoder_mask: torch.Tensor
+    
+    decoder_input: torch.Tensor
+    decoder_mask: torch.Tensor
+
+    label: torch.Tensor
+    src_text: str
+    tgt_text: str
+    #decoder_output: torch.Tensor
+    
+
+
+    # "encoder_input": encoder_input, # (Seq_Len,)
+    # "encoder_mask": make_input_mask(encoder_input, self.padding_token), # (1, 1, seq_len)
+
+    # "decoder_input": decoder_input, # (Seq_Len,)
+    # "decoder_mask": make_decoder_mask(decoder_input, self.padding_token), # (1, seq_len,) & (1, seq_len, seq_len),
+
+    # "label": label, # (Seq_Len,)
+    # "src_text": src_text,
+    # "tgt_text": tgt_text,
+
 
 class BilingualDataset(torch.utils.data.Dataset):
     def __init__(
@@ -60,10 +81,10 @@ class BilingualDataset(torch.utils.data.Dataset):
     def __len__(self):
         return len(self.dataset)
 
-    def __getitem__(self, index):
+    def __getitem__(self, index: int) -> MyBatch:
         src_target_pair = self.dataset[index]
-        src_text = src_target_pair["translation"][self.src_lang]
-        tgt_text = src_target_pair["translation"][self.tgt_lang]
+        src_text: str = src_target_pair["translation"][self.src_lang]
+        tgt_text: str = src_target_pair["translation"][self.tgt_lang]
 
         enc_input_tokens = self.tokenizer_src.encode(src_text).ids
         dec_input_tokens = self.tokenizer_tgt.encode(tgt_text).ids
@@ -103,27 +124,29 @@ class BilingualDataset(torch.utils.data.Dataset):
         assert decoder_input.size(0) == self.seq_len
         assert label.size(0) == self.seq_len
 
-        return {
+        q: MyBatch = {
             "encoder_input": encoder_input, # (Seq_Len,)
             "decoder_input": decoder_input, # (Seq_Len,)
             "encoder_mask": make_input_mask(encoder_input, self.padding_token), # (1, 1, seq_len)
             "decoder_mask": make_decoder_mask(decoder_input, self.padding_token), # (1, seq_len,) & (1, seq_len, seq_len),
-            "label":label, # (Seq_Len,)
-            "src_text":src_text,
-            "tgt_text":tgt_text,
+            "label": label, # (Seq_Len,)
+            "src_text": src_text,
+            "tgt_text": tgt_text,
         }
+        return q
 
 
 
+@dataclass
+class DataSet:
+    train_loader: DataLoader
+    validation_loader: DataLoader
+    train_dataset: BilingualDataset
+    validation_dataset: BilingualDataset
 
 
-def get_all_sentences(dataset: Iterable[dict], lang: str):
-    for item in dataset:
-        yield item["translation"][lang]
 
-
-
-def get_dataset(config: Config) -> DataSet:
+def get_dataset_raw(config: Config) -> datasets.Dataset:
     print("loading dataset")
     dataset_raw: datasets.Dataset = datasets.load_dataset(
         "Helsinki-NLP/opus_books",
@@ -132,11 +155,10 @@ def get_dataset(config: Config) -> DataSet:
     )
     print("dataset loaded.")
 
-    from tokens import build_tokenizer
+    return dataset_raw
 
-    tokenizer_src = build_tokenizer(config, dataset_raw, config.lang_src)
-    tokenizer_tgt = build_tokenizer(config, dataset_raw, config.lang_tgt)
 
+def tokenize_dataset(config: Config, dataset_raw: datasets.Dataset, tokenizers: Tokenizers) -> DataSet:
     # keep 90% for training and 10% for validation
     train_dataset_size = int(0.9 * len(dataset_raw))
     validation_dataset_size = len(dataset_raw) - train_dataset_size
@@ -146,10 +168,11 @@ def get_dataset(config: Config) -> DataSet:
         [train_dataset_size, validation_dataset_size]
     )
 
+    print("tokenizing input dataset")
     train_dataset = BilingualDataset(
         train_dataset_raw,
-        tokenizer_src,
-        tokenizer_tgt,
+        tokenizers.source,
+        tokenizers.target,
         config.lang_src,
         config.lang_tgt,
         config.seq_len,
@@ -157,8 +180,8 @@ def get_dataset(config: Config) -> DataSet:
 
     validation_dataset = BilingualDataset(
         validation_dataset_raw,
-        tokenizer_src,
-        tokenizer_tgt,
+        tokenizers.source,
+        tokenizers.target,
         config.lang_src,
         config.lang_tgt,
         config.seq_len,
@@ -166,9 +189,10 @@ def get_dataset(config: Config) -> DataSet:
 
     max_len_src = 0
     max_len_tgt = 0
+    
     for item in dataset_raw:
-        src_ids = tokenizer_src.encode(item["translation"][config.lang_src]).ids
-        tgt_ids = tokenizer_tgt.encode(item["translation"][config.lang_tgt]).ids
+        src_ids = tokenizers.source.encode(item["translation"][config.lang_src]).ids
+        tgt_ids = tokenizers.target.encode(item["translation"][config.lang_tgt]).ids
 
         max_len_src = max(max_len_src, len(src_ids))
         max_len_tgt = max(max_len_tgt, len(tgt_ids))
@@ -179,10 +203,11 @@ def get_dataset(config: Config) -> DataSet:
     train_dataloader = DataLoader(train_dataset, batch_size=config.batch_size, shuffle=True)
     validation_dataloader = DataLoader(validation_dataset, batch_size=1, shuffle=True)
 
+    print("tokenizing done.")
     return DataSet(
-        train=train_dataloader,
-        validation=validation_dataloader, 
-        tokenizer_src=tokenizer_src,
-        tokenizer_tgt=tokenizer_tgt
+        train_loader=train_dataloader,
+        validation_loader=validation_dataloader, 
+        train_dataset=train_dataset,
+        validation_dataset=validation_dataset
     )
 

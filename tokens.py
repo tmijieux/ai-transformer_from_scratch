@@ -1,4 +1,7 @@
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Iterable
+
 
 from tokenizers import Tokenizer
 from tokenizers.models import WordLevel
@@ -6,9 +9,13 @@ from tokenizers.trainers import WordLevelTrainer
 from tokenizers.pre_tokenizers import Whitespace
 
 from config import Config
-from dataset import get_all_sentences
 
-def build_tokenizer(config: Config, dataset, lang: str):
+def get_all_sentences(dataset: Iterable[dict], lang: str):
+    for item in dataset:
+        yield item["translation"][lang]
+
+
+def get_or_build_tokenizer(config: Config, dataset, lang: str):
 
     tokenizer_path = Path(config.tokenizer_file.format(lang))
 
@@ -31,3 +38,18 @@ def build_tokenizer(config: Config, dataset, lang: str):
         tokenizer = Tokenizer.from_file(str(tokenizer_path))
 
     return tokenizer
+
+
+@dataclass
+class Tokenizers:
+    source: Tokenizer
+    target: Tokenizer
+
+def get_or_build_tokenizers(config: Config, dataset_raw) -> Tokenizers:
+
+    tokenizer_src = get_or_build_tokenizer(config, dataset_raw, config.lang_src)
+    tokenizer_tgt = get_or_build_tokenizer(config, dataset_raw, config.lang_tgt)
+    return Tokenizers(
+        source=tokenizer_src,
+        target=tokenizer_tgt,
+    )
